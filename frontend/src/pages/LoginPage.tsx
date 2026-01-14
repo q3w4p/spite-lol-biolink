@@ -35,11 +35,16 @@ export default function LoginPage({ setUser }: LoginPageProps) {
       setUser(response.data.user);
       
       if (!response.data.user.isVerified) {
-        navigate('/verify-email', { state: { userId: response.data.user.id } });
+        navigate('/verify-email', { state: { email: response.data.user.email } });
       } else {
         navigate('/dashboard');
       }
     } catch (err: any) {
+      // Check if user needs verification
+      if (err.response?.data?.needsVerification) {
+        navigate('/verify-email', { state: { email: err.response.data.email } });
+        return;
+      }
       setError(err.response?.data?.error || 'Login failed. Please try again.');
     } finally {
       setLoading(false);

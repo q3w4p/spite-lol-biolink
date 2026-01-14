@@ -14,13 +14,10 @@ export default function VerifyEmailPage() {
   const [resendCooldown, setResendCooldown] = useState(0);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  const email = location.state?.email;
+  const [email, setEmail] = useState(location.state?.email || '');
+  const [showEmailInput, setShowEmailInput] = useState(!location.state?.email);
 
-  useEffect(() => {
-    if (!email) {
-      navigate('/register');
-    }
-  }, [email, navigate]);
+  // Don't redirect if no email - let user enter it
 
   useEffect(() => {
     if (resendCooldown > 0) {
@@ -171,11 +168,44 @@ export default function VerifyEmailPage() {
               <Mail size={32} className="text-[#059669]" />
             </div>
             <h1 className="text-2xl font-bold text-white mb-2">Verify Your Email</h1>
-            <p className="text-gray-400 text-sm">
-              We sent a 6-digit code to<br />
-              <span className="text-[#059669] font-medium">{email}</span>
-            </p>
-            <p className="text-gray-500 text-xs mt-2">Code expires in 5 minutes</p>
+            {showEmailInput ? (
+              <div className="mt-4">
+                <p className="text-gray-400 text-sm mb-4">Enter your email to receive a verification code</p>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="Enter your email"
+                  className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:border-[#059669] focus:ring-1 focus:ring-[#059669] outline-none transition-all mb-4"
+                />
+                <button
+                  onClick={() => {
+                    if (email) {
+                      setShowEmailInput(false);
+                      handleResend();
+                    }
+                  }}
+                  disabled={!email}
+                  className="btn-primary w-full py-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Send Verification Code
+                </button>
+              </div>
+            ) : (
+              <>
+                <p className="text-gray-400 text-sm">
+                  We sent a 6-digit code to<br />
+                  <span className="text-[#059669] font-medium">{email}</span>
+                </p>
+                <p className="text-gray-500 text-xs mt-2">Code expires in 5 minutes</p>
+                <button
+                  onClick={() => setShowEmailInput(true)}
+                  className="text-gray-500 text-xs mt-2 hover:text-[#059669] underline"
+                >
+                  Wrong email? Click here
+                </button>
+              </>
+            )}
           </div>
 
           {error && (
@@ -189,52 +219,56 @@ export default function VerifyEmailPage() {
             </motion.div>
           )}
 
-          {/* Code Input */}
-          <div className="flex justify-center gap-3 mb-8" onPaste={handlePaste}>
-            {code.map((digit, index) => (
-              <input
-                key={index}
-                ref={el => inputRefs.current[index] = el}
-                type="text"
-                inputMode="numeric"
-                maxLength={1}
-                value={digit}
-                onChange={(e) => handleChange(index, e.target.value)}
-                onKeyDown={(e) => handleKeyDown(index, e)}
-                className="w-12 h-14 text-center text-2xl font-bold rounded-xl bg-white/5 border border-white/10 text-white focus:border-[#059669] focus:ring-1 focus:ring-[#059669] focus:bg-[#059669]/10 outline-none transition-all" style={{ color: '#059669', caretColor: '#059669' }}
-                disabled={loading}
-              />
-            ))}
-          </div>
+          {/* Code Input - only show when not in email input mode */}
+          {!showEmailInput && (
+            <>
+              <div className="flex justify-center gap-3 mb-8" onPaste={handlePaste}>
+                {code.map((digit, index) => (
+                  <input
+                    key={index}
+                    ref={el => inputRefs.current[index] = el}
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={1}
+                    value={digit}
+                    onChange={(e) => handleChange(index, e.target.value)}
+                    onKeyDown={(e) => handleKeyDown(index, e)}
+                    className="w-12 h-14 text-center text-2xl font-bold rounded-xl bg-white/5 border border-white/10 text-white focus:border-[#059669] focus:ring-1 focus:ring-[#059669] focus:bg-[#059669]/10 outline-none transition-all" style={{ color: '#059669', caretColor: '#059669' }}
+                    disabled={loading}
+                  />
+                ))}
+              </div>
 
-          <motion.button
-            onClick={() => handleVerify(code.join(''))}
-            disabled={loading || code.some(d => !d)}
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            className="btn-primary w-full py-4 text-lg disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? (
-              <div className="spinner w-5 h-5 border-2" />
-            ) : (
-              <>
-                Verify Email
-                <ArrowRight size={20} />
-              </>
-            )}
-          </motion.button>
+              <motion.button
+                onClick={() => handleVerify(code.join(''))}
+                disabled={loading || code.some(d => !d)}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="btn-primary w-full py-4 text-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? (
+                  <div className="spinner w-5 h-5 border-2" />
+                ) : (
+                  <>
+                    Verify Email
+                    <ArrowRight size={20} />
+                  </>
+                )}
+              </motion.button>
 
-          <div className="mt-6 text-center">
-            <p className="text-gray-400 text-sm mb-2">Didn't receive the code?</p>
-            <button
-              onClick={handleResend}
-              disabled={resendCooldown > 0}
-              className="inline-flex items-center gap-2 text-[#059669] hover:underline font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <RefreshCw size={16} />
-              {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend Code'}
-            </button>
-          </div>
+              <div className="mt-6 text-center">
+                <p className="text-gray-400 text-sm mb-2">Didn't receive the code?</p>
+                <button
+                  onClick={handleResend}
+                  disabled={resendCooldown > 0}
+                  className="inline-flex items-center gap-2 text-[#059669] hover:underline font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <RefreshCw size={16} />
+                  {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend Code'}
+                </button>
+              </div>
+            </>
+          )}
         </motion.div>
 
         {/* Footer */}

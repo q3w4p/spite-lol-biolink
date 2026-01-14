@@ -58,6 +58,17 @@ router.get("/:username", async (req: Request, res: Response): Promise<void> => {
     );
 
     if (result.rows.length === 0) {
+      // Check if user exists but is not verified
+      const unverifiedCheck = await pool.query(
+        "SELECT username, is_verified FROM users WHERE LOWER(username) = LOWER($1)",
+        [username]
+      );
+      
+      if (unverifiedCheck.rows.length > 0 && !unverifiedCheck.rows[0].is_verified) {
+        res.status(403).json({ error: "This profile is not available. The user needs to verify their email." });
+        return;
+      }
+      
       res.status(404).json({ error: "Profile not found" });
       return;
     }

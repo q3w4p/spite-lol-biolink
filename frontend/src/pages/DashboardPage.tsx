@@ -116,18 +116,51 @@ export default function DashboardPage({ user: propUser }: DashboardPageProps) {
     try {
       setLoading(true);
       
-      // Get user if not passed as prop
-      if (!user) {
-        const userRes = await authAPI.getMe();
-        const userData = userRes.data.user || userRes.data;
-        setUser(userData);
+      // Check if we have a token
+      const token = localStorage.getItem('token');
+      if (!token) {
+        navigate('/login');
+        return;
       }
       
-      // Get profile
-      const profileRes = await profileAPI.getMyProfile();
-      setProfile(profileRes.data || {});
-      setUserLinks(profileRes.data?.links || []);
-      setUserBadges(profileRes.data?.badges || []);
+      // Get user if not passed as prop
+      if (!user) {
+        try {
+          const userRes = await authAPI.getMe();
+          const userData = userRes.data.user || userRes.data;
+          setUser(userData);
+        } catch (userError: any) {
+          console.error('Failed to get user:', userError);
+          // Check if it's a verification issue
+          if (userError.response?.status === 403) {
+            navigate('/verify-email');
+            return;
+          }
+          // Clear invalid token and redirect to login
+          localStorage.removeItem('token');
+          navigate('/login');
+          return;
+        }
+      }
+      
+      // Get profile - this may fail if user just verified
+      try {
+        const profileRes = await profileAPI.getMyProfile();
+        setProfile(profileRes.data || {});
+        setUserLinks(profileRes.data?.links || []);
+        setUserBadges(profileRes.data?.badges || []);
+      } catch (profileError: any) {
+        console.error('Failed to get profile:', profileError);
+        // If verification required, redirect
+        if (profileError.response?.status === 403) {
+          navigate('/verify-email');
+          return;
+        }
+        // Otherwise just use empty profile
+        setProfile({});
+        setUserLinks([]);
+        setUserBadges([]);
+      }
       
       // Get templates
       try {
