@@ -5,6 +5,9 @@ import {
   requireVerified,
   AuthRequest,
 } from "../middleware/auth";
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 
 const router = express.Router();
 
@@ -807,6 +810,88 @@ router.get(
     } catch (error) {
       console.error("Get favorites error:", error);
       res.status(500).json({ error: "Failed to get favorites" });
+    }
+  }
+);
+
+// File upload endpoint
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(__dirname, '../../uploads');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/webm', 'audio/mpeg', 'audio/mp3', 'audio/wav', 'image/x-icon', 'application/octet-stream'];
+    if (allowedTypes.includes(file.mimetype) || file.originalname.endsWith('.cur')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type'));
+    }
+  }
+});
+
+// Upload file
+router.post(
+  "/me/upload",
+  authenticateToken,
+  requireVerified,
+  upload.single('file'),
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      if (!req.file) {
+        res.status(400).json({ error: "No file uploaded" });
+        return;
+      }
+
+      const { type } = req.body; // background, avatar, audio, cursor
+      const fileUrl = `/uploads/${req.file.filename}`;
+
+      // Update profile with the file URL based on type
+      let column = '';
+      switch (type) {
+        case 'background':
+          if (req.file.mimetype.startsWith('video/')) {
+            column = 'background_video';
+          } else {
+            column = 'background_image';
+          }
+          break;
+        case 'avatar':
+          column = 'custom_pfp';
+          break;
+        case 'audio':
+          column = 'background_audio';
+          break;
+        case 'cursor':
+          column = 'custom_cursor';
+          break;
+        default:
+          res.status(400).json({ error: "Invalid upload type" });
+          return;
+      }
+
+      await pool.query(
+        `UPDATE profiles SET ${column} = $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2`,
+        [fileUrl, req.userId]
+      );
+
+      res.json({ url: fileUrl, type });
+    } catch (error) {
+      console.error("Upload error:", error);
+      res.status(500).json({ error: "Failed to upload file" });
     }
   }
 );

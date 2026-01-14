@@ -86,12 +86,19 @@ export const profileAPI = {
     api.post("/profile/me/upload", formData, {
       headers: { "Content-Type": "multipart/form-data" },
     }),
+
+  getMyBadges: () => api.get("/profile/me/badges"),
+
+  getMyLinks: () => api.get("/profile/me/links"),
 };
 
 export const templatesAPI = {
   getMyTemplates: () => api.get("/templates/my"),
 
-  createTemplate: (data: { name: string; settings: any }) =>
+  getPublicTemplates: (page = 1, limit = 20, search?: string, sort = 'trending') =>
+    api.get(`/templates?page=${page}&limit=${limit}&sort=${sort}${search ? `&search=${encodeURIComponent(search)}` : ''}`),
+
+  createTemplate: (data: { name: string; settings: any; tags?: string[]; is_public?: boolean }) =>
     api.post("/templates", data),
 
   getTemplateByCode: (code: string) => api.get(`/templates/${code}`),
@@ -99,6 +106,14 @@ export const templatesAPI = {
   applyTemplate: (code: string) => api.post(`/templates/${code}/apply`),
 
   deleteTemplate: (id: number) => api.delete(`/templates/${id}`),
+
+  favoriteTemplate: (templateId: number) => api.post(`/templates/${templateId}/favorite`),
+
+  unfavoriteTemplate: (templateId: number) => api.delete(`/templates/${templateId}/favorite`),
+
+  getFavoriteTemplates: () => api.get("/templates/favorites"),
+
+  getLastUsedTemplates: () => api.get("/templates/last-used"),
 };
 
 export const adminAPI = {
