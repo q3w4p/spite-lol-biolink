@@ -1,0 +1,232 @@
+import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import { User as UserIcon, Lock, Eye, EyeOff, ArrowRight, Sparkles, AlertCircle } from 'lucide-react';
+import { authAPI } from '../utils/api';
+import { User } from '../App';
+
+// Discord Icon SVG
+const DiscordIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/>
+  </svg>
+);
+
+interface LoginPageProps {
+  setUser: (user: User) => void;
+}
+
+export default function LoginPage({ setUser }: LoginPageProps) {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const navigate = useNavigate();
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    try {
+      const response = await authAPI.login({ username, password });
+      localStorage.setItem('token', response.data.token);
+      setUser(response.data.user);
+      
+      if (!response.data.user.isVerified) {
+        navigate('/verify-email', { state: { userId: response.data.user.id } });
+      } else {
+        navigate('/dashboard');
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Login failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDiscordLogin = () => {
+    window.location.href = '/api/auth/discord';
+  };
+
+  return (
+    <div className="min-h-screen bg-black grid-background flex items-center justify-center p-6 relative overflow-hidden">
+      {/* Background effects */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <motion.div
+          className="absolute w-[600px] h-[600px] rounded-full"
+          style={{
+            background: 'radial-gradient(circle, rgba(5, 150, 105, 0.08) 0%, transparent 70%)',
+            top: '-20%',
+            left: '-10%',
+          }}
+          animate={{
+            x: [0, 50, 0],
+            y: [0, 30, 0],
+          }}
+          transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
+        />
+        <motion.div
+          className="absolute w-[500px] h-[500px] rounded-full"
+          style={{
+            background: 'radial-gradient(circle, rgba(5, 150, 105, 0.04) 0%, transparent 70%)',
+            bottom: '-10%',
+            right: '-10%',
+          }}
+          animate={{
+            x: [0, -40, 0],
+            y: [0, -30, 0],
+          }}
+          transition={{ duration: 25, repeat: Infinity, ease: "easeInOut" }}
+        />
+      </div>
+
+      <motion.div
+        initial={{ opacity: 0, y: 30 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6 }}
+        className="relative z-10 w-full max-w-md"
+      >
+        {/* Logo */}
+        <Link to="/" className="flex items-center justify-center gap-3 mb-8">
+          <motion.div
+            className="w-12 h-12 rounded-xl bg-[#059669] flex items-center justify-center"
+            whileHover={{ scale: 1.1 }}
+            transition={{ duration: 0.3 }}
+          >
+            <span className="text-black font-bold text-xl">&gt;_</span>
+          </motion.div>
+          <span className="text-3xl font-bold text-[#059669]">spite.lol</span>
+        </Link>
+
+        {/* Card */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.1 }}
+          className="glass-card p-8 rounded-2xl"
+        >
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-bold text-white mb-2">Welcome Back</h1>
+            <p className="text-gray-400">Sign in to manage your biolink</p>
+          </div>
+
+          {error && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/30 flex items-start gap-3"
+            >
+              <AlertCircle className="text-red-400 mt-0.5 flex-shrink-0" size={18} />
+              <p className="text-red-400 text-sm">{error}</p>
+            </motion.div>
+          )}
+
+          {/* Discord Login Button */}
+          <button
+            onClick={handleDiscordLogin}
+            className="btn-discord w-full mb-5"
+          >
+            <DiscordIcon />
+            Continue with Discord
+          </button>
+
+          <div className="divider">or</div>
+
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Username or Email</label>
+              <div className="input-wrapper">
+                <UserIcon className="input-icon" size={18} />
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="Enter your username or email"
+                  className="glass-input rounded-xl"
+                  required
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Password</label>
+              <div className="input-wrapper">
+                <Lock className="input-icon" size={18} />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="glass-input rounded-xl"
+                  style={{ paddingRight: '48px' }}
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="input-icon-right"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between text-sm">
+              <label className="flex items-center gap-2 text-gray-400 cursor-pointer">
+                <input type="checkbox" className="rounded border-gray-600 bg-black text-[#059669] focus:ring-[#059669]" />
+                Remember me
+              </label>
+              <Link to="/forgot-password" className="text-[#059669] hover:underline transition-colors">
+                Forgot password?
+              </Link>
+            </div>
+
+            <motion.button
+              type="submit"
+              disabled={loading}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              className="btn-primary w-full py-4 text-lg disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? (
+                <div className="spinner w-5 h-5 border-2" />
+              ) : (
+                <>
+                  Sign In
+                  <ArrowRight size={20} />
+                </>
+              )}
+            </motion.button>
+          </form>
+
+          <div className="mt-8 text-center">
+            <p className="text-gray-400">
+              Don't have an account?{' '}
+              <Link to="/register" className="text-[#059669] hover:underline font-medium transition-colors">
+                Sign up free
+              </Link>
+            </p>
+          </div>
+        </motion.div>
+
+        {/* Features reminder */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.3 }}
+          className="mt-6 flex items-center justify-center gap-2 text-gray-500 text-sm"
+        >
+          <Sparkles size={16} className="text-[#059669]" />
+          <span>All premium features included free</span>
+        </motion.div>
+
+        {/* Footer */}
+        <p className="text-center text-gray-500 text-sm mt-4">
+          Need help? <a href="mailto:contact@spite.lol" className="text-[#059669] hover:underline">contact@spite.lol</a>
+        </p>
+      </motion.div>
+    </div>
+  );
+}

@@ -1,0 +1,15 @@
+{
+  "name": "spite-biolink-monorepo",
+  "version": "1.0.0",
+  "description": "Biolink platform with backend and frontend",
+  "main": "index.js",
+  "scripts": {
+    "setup": "cd backend && npm install && cd ../frontend && npm install",
+    "db:setup": "cd backend && npm run db:setup",
+    "dev": "node index.js",
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

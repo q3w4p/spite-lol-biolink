@@ -1,0 +1,16 @@
+════════════════════════════════════════════
+📝 UPDATE YOUR App.tsx FILE
+════════════════════════════════════════════
+
+You need to manually update frontend/src/App.tsx:
+
+1. Add this import at the top:
+   import NewHomePage from './pages/NewHomePage';
+
+2. Find this line:
+   <Route path="/" element={<HomePage user={user} />} />
+
+3. Replace it with:
+   <Route path="/" element={<NewHomePage user={user} />} />
+
+That's it! The old HomePage will still exist as a backup.
