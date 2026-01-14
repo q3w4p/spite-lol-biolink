@@ -166,7 +166,6 @@ router.get(
           u.avatar as user_avatar,
           u.discord_id,
           u.discord_avatar,
-          u.discord_username,
           u.is_admin,
           u.role,
           p.*

@@ -22,7 +22,7 @@ const generateShareCode = (): string => {
 router.get("/", async (req: Request, res: Response): Promise<void> => {
   try {
     const result = await pool.query(
-      `SELECT t.id, t.name, t.share_code, t.screenshot_url, t.uses_count, t.created_at,
+      `SELECT t.id, t.name, t.share_code, t.screenshot, t.uses_count, t.created_at,
               u.username as creator_username
        FROM templates t
        JOIN users u ON t.user_id = u.id
