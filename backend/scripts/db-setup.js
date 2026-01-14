@@ -1,3 +1,13 @@
+#!/usr/bin/env node
+
+/**
+ * Database Setup Script
+ * Run with: npm run db:setup
+ */
+
+// IMPORTANT: Disable SSL certificate verification BEFORE requiring pg
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
 const { Client } = require('pg');
 const fs = require('fs');
 const path = require('path');
@@ -13,7 +23,7 @@ async function setupDatabase() {
   const client = new Client({
     connectionString: process.env.DATABASE_URL,
     ssl: {
-      rejectUnauthorized: false  // Allow self-signed certificates (required for Aiven)
+      rejectUnauthorized: false
     }
   });
 
@@ -33,8 +43,7 @@ async function setupDatabase() {
 
     console.log('📝 Running schema.sql...');
     
-    // Run the entire schema as one transaction
-    // This properly handles functions, triggers, and dollar-quoted strings
+    // Run the entire schema as one query
     await client.query(schema);
 
     console.log('✅ Database schema updated successfully!');
@@ -43,7 +52,7 @@ async function setupDatabase() {
     // Check if it's just "already exists" errors
     if (error.message.includes('already exists') || 
         error.message.includes('duplicate key') ||
-        error.message.includes('relation') && error.message.includes('does not exist')) {
+        (error.message.includes('relation') && error.message.includes('does not exist'))) {
       console.log('⚠️  Some objects already exist or were skipped (this is normal)');
       console.log('✅ Database schema setup completed!');
     } else {
