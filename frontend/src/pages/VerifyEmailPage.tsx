@@ -201,7 +201,7 @@ export default function VerifyEmailPage() {
                 value={digit}
                 onChange={(e) => handleChange(index, e.target.value)}
                 onKeyDown={(e) => handleKeyDown(index, e)}
-                className="w-12 h-14 text-center text-2xl font-bold glass-input rounded-xl text-[#059669] focus:border-[#059669] focus:ring-1 focus:ring-[#059669]"
+                className="w-12 h-14 text-center text-2xl font-bold rounded-xl bg-white/5 border border-white/10 text-white focus:border-[#059669] focus:ring-1 focus:ring-[#059669] focus:bg-[#059669]/10 outline-none transition-all" style={{ color: '#059669', caretColor: '#059669' }}
                 disabled={loading}
               />
             ))}

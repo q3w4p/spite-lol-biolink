@@ -60,7 +60,7 @@ export const authAPI = {
 };
 
 export const profileAPI = {
-  getPublicProfile: (username: string) => api.get(`/profile/${username}`),
+  getPublicProfile: (username: string) => api.get(`/profile/${encodeURIComponent(username)}`),
 
   getMyProfile: () => api.get("/profile/me/profile"),
 
@@ -80,7 +80,7 @@ export const profileAPI = {
     api.put("/profile/me/links/reorder", { linkIds }),
 
   trackClick: (username: string, linkId: number) =>
-    api.post(`/profile/${username}/click/${linkId}`),
+    api.post(`/profile/${encodeURIComponent(username)}/click/${linkId}`),
 
   uploadMedia: (formData: FormData) =>
     api.post("/profile/me/upload", formData, {
@@ -102,23 +102,42 @@ export const templatesAPI = {
 };
 
 export const adminAPI = {
+  // Stats
   getStats: () => api.get("/admin/stats"),
 
-  getUsers: (page = 1, limit = 50) =>
-    api.get(`/admin/users?page=${page}&limit=${limit}`),
+  // Users
+  getUsers: (page = 1, limit = 50, search?: string) =>
+    api.get(`/admin/users?page=${page}&limit=${limit}${search ? `&search=${encodeURIComponent(search)}` : ''}`),
 
   getUser: (userId: number) => api.get(`/admin/users/${userId}`),
 
-  getUserByUid: (uid: string) => api.get(`/admin/users/uid/${uid}`),
+  getUserByUid: (uid: number) => api.get(`/admin/users/uid/${uid}`),
 
   deleteUser: (userId: number) => api.delete(`/admin/users/${userId}`),
 
+  updateUserStatus: (
+    userId: number,
+    data: { isVerified?: boolean; isAdmin?: boolean },
+  ) => api.put(`/admin/users/${userId}/status`, data),
+
+  // Banning
   banUser: (userId: number, reason: string) =>
-    api.post(`/admin/users/${userId}/ban`, { reason }),
+    api.post("/admin/ban", { userId, reason }),
 
-  unbanUser: (userId: number) => api.post(`/admin/users/${userId}/unban`),
+  unbanUser: (userId: number) => api.post("/admin/unban", { userId }),
 
-  stripEffects: (userId: number) => api.post(`/admin/users/${userId}/strip-effects`),
+  getBannedUsers: () => api.get("/admin/banned"),
+
+  // Badges
+  getBadges: () => api.get("/admin/badges"),
+
+  createBadge: (data: { name: string; description?: string; icon: string; color?: string }) =>
+    api.post("/admin/badges", data),
+
+  updateBadge: (badgeId: number, data: { name?: string; description?: string; icon?: string; color?: string }) =>
+    api.put(`/admin/badges/${badgeId}`, data),
+
+  deleteBadge: (badgeId: number) => api.delete(`/admin/badges/${badgeId}`),
 
   assignBadge: (userId: number, badgeId: number) =>
     api.post(`/admin/users/${userId}/badges`, { badgeId }),
@@ -126,18 +145,30 @@ export const adminAPI = {
   removeBadge: (userId: number, badgeId: number) =>
     api.delete(`/admin/users/${userId}/badges/${badgeId}`),
 
-  grantAdmin: (identifier: string, type: "uid" | "discord") =>
-    api.post("/admin/grant-admin", { identifier, type }),
+  // Email
+  sendEmail: (userId: number, subject: string, message: string, fromName?: string) =>
+    api.post("/admin/send-email", { userId, subject, message, fromName }),
 
-  getAuditLog: (page = 1, limit = 50) =>
-    api.get(`/admin/audit-log?page=${page}&limit=${limit}`),
+  sendBulkEmail: (subject: string, message: string, filter?: string, fromName?: string) =>
+    api.post("/admin/send-bulk-email", { subject, message, filter, fromName }),
 
-  updateUserStatus: (
-    userId: number,
-    data: { isVerified?: boolean; isAdmin?: boolean },
-  ) => api.put(`/admin/users/${userId}/status`, data),
+  // Effects
+  stripEffects: (userId: number, options: { stripBackground?: boolean; stripEffects?: boolean; stripAudio?: boolean }) =>
+    api.post("/admin/strip-effects", { userId, ...options }),
+
+  // Audit & Activity
+  getAuditLogs: (page = 1, limit = 50) =>
+    api.get(`/admin/audit-logs?page=${page}&limit=${limit}`),
 
   getActivity: () => api.get("/admin/activity"),
+
+  // Owner functions
+  verifyOwner: (secret: string) => api.post("/admin/owner/verify", { secret }),
+
+  grantAdmin: (uid?: number, discordId?: string) =>
+    api.post("/admin/owner/grant-admin", { uid, discordId }),
+
+  revokeAdmin: (uid: number) => api.post("/admin/owner/revoke-admin", { uid }),
 };
 
 export default api;

@@ -11,7 +11,8 @@ const router = express.Router();
 // Get public profile by username
 router.get("/:username", async (req: Request, res: Response): Promise<void> => {
   try {
-    const { username } = req.params;
+    // Decode URL-encoded username to handle special characters like $, @, etc.
+    const username = decodeURIComponent(req.params.username);
 
     // Get user and profile - using correct column names
     const result = await pool.query(

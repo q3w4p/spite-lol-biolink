@@ -444,9 +444,19 @@ export default function ProfilePage() {
 
         {/* Links */}
         <div className="space-y-4">
-          {links.map((link: any, index: number) => (
-            <LinkCard key={link.id || index} link={link} index={index} onClick={() => handleLinkClick(link.id, link.url)} />
-          ))}
+          {links.length > 0 ? (
+            links.map((link: any, index: number) => (
+              <LinkCard key={link.id || index} link={link} index={index} onClick={() => handleLinkClick(link.id, link.url)} />
+            ))
+          ) : (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="text-center py-8"
+            >
+              <p className="text-gray-500 text-sm">No links added yet</p>
+            </motion.div>
+          )}
         </div>
 
         {/* Footer */}

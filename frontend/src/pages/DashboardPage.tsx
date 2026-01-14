@@ -83,7 +83,7 @@ export default function DashboardPage({ user: propUser }: DashboardPageProps) {
         authAPI.getMe(),
         profileAPI.getMyProfile().catch(() => ({ data: null })),
       ]);
-      setUser(userRes.data);
+      setUser(userRes.data.user || userRes.data);
       setProfile(profileRes.data);
     } catch (error) {
       navigate('/login');
