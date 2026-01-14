@@ -4,6 +4,9 @@ import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import VerifyEmailPage from "./pages/VerifyEmailPage";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
+import AuthCallbackPage from "./pages/AuthCallbackPage";
 import DashboardPage from "./pages/DashboardPage";
 import ProfilePage from "./pages/ProfilePage";
 import AdminPage from "./pages/AdminPage";
@@ -40,7 +43,7 @@ function App() {
     if (token) {
       authAPI
         .getMe()
-        .then((res) => setUser(res.data))
+        .then((res) => setUser(res.data.user))
         .catch(() => localStorage.removeItem("token"))
         .finally(() => setLoading(false));
     } else {
@@ -63,6 +66,9 @@ function App() {
         <Route path="/login" element={<LoginPage setUser={setUser} />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/auth/callback" element={<AuthCallbackPage setUser={setUser} />} />
         <Route path="/dashboard" element={<DashboardPage user={user} setUser={setUser} />} />
         <Route path="/dashboard/badges" element={<BadgesPage user={user} />} />
         <Route path="/dashboard/settings" element={<SettingsPage user={user} setUser={setUser} />} />

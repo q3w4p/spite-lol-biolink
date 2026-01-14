@@ -43,11 +43,20 @@ export const authAPI = {
   verifyEmail: (data: { userId: number; code: string }) =>
     api.post("/auth/verify-email", data),
 
-  resendCode: (data: { userId: number }) => api.post("/auth/resend-code", data),
+  resendCode: (data: { email: string }) => api.post("/auth/resend-code", data),
 
   logout: () => api.post("/auth/logout"),
 
   getMe: () => api.get("/auth/me"),
+
+  forgotPassword: (data: { email: string }) =>
+    api.post("/auth/forgot-password", data),
+
+  resetPassword: (data: { token: string | null; password: string }) =>
+    api.post("/auth/reset-password", data),
+
+  verify: (data: { email: string; code: string }) =>
+    api.post("/auth/verify", data),
 };
 
 export const profileAPI = {

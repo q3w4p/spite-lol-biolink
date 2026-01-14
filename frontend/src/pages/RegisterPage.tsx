@@ -23,11 +23,36 @@ export default function RegisterPage() {
     setError('');
     setLoading(true);
 
+    // Client-side validation
+    if (formData.username.length < 1) {
+      setError('Username must be at least 1 character');
+      setLoading(false);
+      return;
+    }
+
+    if (formData.username.length > 50) {
+      setError('Username must be 50 characters or less');
+      setLoading(false);
+      return;
+    }
+
+    if (/[\s<>]/.test(formData.username)) {
+      setError('Username cannot contain spaces or < > characters');
+      setLoading(false);
+      return;
+    }
+
+    if (formData.password.length < 6) {
+      setError('Password must be at least 6 characters');
+      setLoading(false);
+      return;
+    }
+
     try {
       const response = await authAPI.register(formData);
       navigate('/verify-email', { 
         state: { 
-          userId: response.data.userId,
+          userId: response.data.user?.id,
           email: formData.email 
         } 
       });
@@ -40,6 +65,12 @@ export default function RegisterPage() {
 
   const handleDiscordLogin = () => {
     window.location.href = '/api/auth/discord';
+  };
+
+  // Allow all characters except spaces and < >
+  const handleUsernameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value.replace(/[\s<>]/g, '');
+    setFormData({ ...formData, username: value });
   };
 
   const features = [
@@ -177,12 +208,12 @@ export default function RegisterPage() {
                   <input
                     type="text"
                     value={formData.username}
-                    onChange={(e) => setFormData({ ...formData, username: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, '') })}
+                    onChange={handleUsernameChange}
                     placeholder="yourname"
                     className="glass-input rounded-xl"
                     required
-                    pattern="[a-zA-Z0-9_-]{3,50}"
-                    title="3-50 characters, letters, numbers, underscores, and hyphens only"
+                    minLength={1}
+                    maxLength={50}
                   />
                 </div>
                 <p className="text-xs text-gray-500 mt-2 ml-1">
@@ -215,11 +246,11 @@ export default function RegisterPage() {
                     type={showPassword ? 'text' : 'password'}
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                    placeholder="Minimum 8 characters"
+                    placeholder="Minimum 6 characters"
                     className="glass-input rounded-xl"
                     style={{ paddingRight: '48px' }}
                     required
-                    minLength={8}
+                    minLength={6}
                   />
                   <button
                     type="button"

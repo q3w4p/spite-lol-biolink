@@ -2,24 +2,62 @@ import express, { Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import validator from "validator";
+import crypto from "crypto";
 import pool from "../config/database";
 import {
   sendVerificationEmail,
   sendWelcomeEmail,
+  sendPasswordResetEmail,
 } from "../services/emailServiceResend";
 import { authenticateToken, AuthRequest } from "../middleware/auth";
 
 const router = express.Router();
+
+// Discord API response types
+interface DiscordTokenResponse {
+  access_token?: string;
+  token_type?: string;
+  expires_in?: number;
+  refresh_token?: string;
+  scope?: string;
+  error?: string;
+}
+
+interface DiscordUser {
+  id: string;
+  username: string;
+  discriminator: string;
+  avatar: string | null;
+  email?: string;
+  verified?: boolean;
+  flags?: number;
+  banner?: string | null;
+  accent_color?: number | null;
+  premium_type?: number;
+  public_flags?: number;
+}
 
 // Generate 6-digit verification code
 const generateVerificationCode = (): string => {
   return Math.floor(100000 + Math.random() * 900000).toString();
 };
 
+// Generate secure reset token
+const generateResetToken = (): string => {
+  return crypto.randomBytes(32).toString('hex');
+};
+
 // Get next sequential UID
 const getNextUID = async (): Promise<number> => {
-  const result = await pool.query("SELECT NEXTVAL('user_uid_seq') as uid");
-  return parseInt(result.rows[0].uid);
+  try {
+    const result = await pool.query("SELECT NEXTVAL('user_uid_seq') as uid");
+    return parseInt(result.rows[0].uid);
+  } catch (error) {
+    // If sequence doesn't exist, create it and try again
+    await pool.query("CREATE SEQUENCE IF NOT EXISTS user_uid_seq START 1");
+    const result = await pool.query("SELECT NEXTVAL('user_uid_seq') as uid");
+    return parseInt(result.rows[0].uid);
+  }
 };
 
 // Register new user
@@ -33,11 +71,19 @@ router.post("/register", async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Username validation (alphanumeric, underscore, hyphen only)
-    if (!/^[a-zA-Z0-9_-]{3,50}$/.test(username)) {
+    // Username validation - allow single characters and special characters
+    // Minimum 1 character, maximum 50, allows letters, numbers, underscores, hyphens, and special chars
+    if (username.length < 1 || username.length > 50) {
       res.status(400).json({
-        error:
-          "Username must be 3-50 characters and contain only letters, numbers, underscores, and hyphens",
+        error: "Username must be 1-50 characters",
+      });
+      return;
+    }
+
+    // Only disallow spaces and certain problematic characters
+    if (/[\s<>]/.test(username)) {
+      res.status(400).json({
+        error: "Username cannot contain spaces or < > characters",
       });
       return;
     }
@@ -48,16 +94,16 @@ router.post("/register", async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Password strength
-    if (password.length < 8) {
-      res.status(400).json({ error: "Password must be at least 8 characters" });
+    // Password strength - minimum 6 characters
+    if (password.length < 6) {
+      res.status(400).json({ error: "Password must be at least 6 characters" });
       return;
     }
 
-    // Check if username or email already exists
+    // Check if username or email already exists (case-insensitive)
     const existingUser = await pool.query(
-      "SELECT id FROM users WHERE username = $1 OR email = $2",
-      [username.toLowerCase(), email.toLowerCase()],
+      "SELECT id FROM users WHERE LOWER(username) = LOWER($1) OR LOWER(email) = LOWER($2)",
+      [username, email],
     );
 
     if (existingUser.rows.length > 0) {
@@ -128,8 +174,8 @@ router.post("/verify", async (req: Request, res: Response): Promise<void> => {
 
     // Find user by email
     const userResult = await pool.query(
-      "SELECT id, username, email, uid, is_admin FROM users WHERE email = $1",
-      [email.toLowerCase()]
+      "SELECT id, username, email, uid, is_admin FROM users WHERE LOWER(email) = LOWER($1)",
+      [email]
     );
 
     if (userResult.rows.length === 0) {
@@ -194,8 +240,8 @@ router.post("/resend-code", async (req: Request, res: Response): Promise<void> =
     }
 
     const userResult = await pool.query(
-      "SELECT id, username, is_verified FROM users WHERE email = $1",
-      [email.toLowerCase()]
+      "SELECT id, username, is_verified FROM users WHERE LOWER(email) = LOWER($1)",
+      [email]
     );
 
     if (userResult.rows.length === 0) {
@@ -243,8 +289,8 @@ router.post("/login", async (req: Request, res: Response): Promise<void> => {
 
     // Find user by username or email
     const userResult = await pool.query(
-      "SELECT * FROM users WHERE username = $1 OR email = $1",
-      [username.toLowerCase()]
+      "SELECT * FROM users WHERE LOWER(username) = LOWER($1) OR LOWER(email) = LOWER($1)",
+      [username]
     );
 
     if (userResult.rows.length === 0) {
@@ -305,6 +351,105 @@ router.post("/login", async (req: Request, res: Response): Promise<void> => {
   }
 });
 
+// Forgot password - request reset
+router.post("/forgot-password", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      res.status(400).json({ error: "Email is required" });
+      return;
+    }
+
+    // Find user by email
+    const userResult = await pool.query(
+      "SELECT id, username, email FROM users WHERE LOWER(email) = LOWER($1)",
+      [email]
+    );
+
+    // Always return success to prevent email enumeration
+    if (userResult.rows.length === 0) {
+      res.json({ message: "If an account with that email exists, a password reset link has been sent." });
+      return;
+    }
+
+    const user = userResult.rows[0];
+
+    // Delete any existing reset tokens for this user
+    await pool.query("DELETE FROM password_reset_tokens WHERE user_id = $1", [user.id]);
+
+    // Generate reset token
+    const resetToken = generateResetToken();
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour expiry
+
+    // Store hashed token
+    const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+    
+    await pool.query(
+      "INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)",
+      [user.id, hashedToken, expiresAt]
+    );
+
+    // Send reset email
+    await sendPasswordResetEmail(user.email, resetToken, user.username);
+
+    res.json({ message: "If an account with that email exists, a password reset link has been sent." });
+  } catch (error) {
+    console.error("Forgot password error:", error);
+    res.status(500).json({ error: "Failed to process password reset request" });
+  }
+});
+
+// Reset password with token
+router.post("/reset-password", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { token, password } = req.body;
+
+    if (!token || !password) {
+      res.status(400).json({ error: "Token and new password are required" });
+      return;
+    }
+
+    if (password.length < 6) {
+      res.status(400).json({ error: "Password must be at least 6 characters" });
+      return;
+    }
+
+    // Hash the provided token
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+    // Find valid reset token
+    const tokenResult = await pool.query(
+      "SELECT user_id FROM password_reset_tokens WHERE token = $1 AND expires_at > NOW()",
+      [hashedToken]
+    );
+
+    if (tokenResult.rows.length === 0) {
+      res.status(400).json({ error: "Invalid or expired reset token" });
+      return;
+    }
+
+    const userId = tokenResult.rows[0].user_id;
+
+    // Hash new password
+    const passwordHash = await bcrypt.hash(password, 12);
+
+    // Update password
+    await pool.query(
+      "UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+      [passwordHash, userId]
+    );
+
+    // Delete used token
+    await pool.query("DELETE FROM password_reset_tokens WHERE user_id = $1", [userId]);
+
+    res.json({ message: "Password reset successfully. You can now login with your new password." });
+  } catch (error) {
+    console.error("Reset password error:", error);
+    res.status(500).json({ error: "Failed to reset password" });
+  }
+});
+
 // Get current user
 router.get("/me", authenticateToken, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -340,7 +485,7 @@ router.get("/me", authenticateToken, async (req: AuthRequest, res: Response): Pr
         useDiscordAvatar: user.use_discord_avatar,
         isVerified: user.is_verified,
         isAdmin: user.is_admin,
-        isOwner: isOwner,
+        isOwner,
         role: user.role,
         createdAt: user.created_at,
         profile: {
@@ -399,9 +544,10 @@ router.get("/discord", (req: Request, res: Response) => {
 router.get("/discord/callback", async (req: Request, res: Response): Promise<void> => {
   try {
     const { code } = req.query;
+    const frontendUrl = process.env.FRONTEND_URL || '';
     
     if (!code) {
-      res.redirect(`${process.env.FRONTEND_URL || ''}/login?error=no_code`);
+      res.redirect(`${frontendUrl}/login?error=no_code`);
       return;
     }
 
@@ -420,10 +566,11 @@ router.get("/discord/callback", async (req: Request, res: Response): Promise<voi
       }),
     });
 
-    const tokenData = await tokenResponse.json();
+    const tokenData = await tokenResponse.json() as DiscordTokenResponse;
 
     if (!tokenData.access_token) {
-      res.redirect(`${process.env.FRONTEND_URL || ''}/login?error=token_failed`);
+      console.error("Discord token error:", tokenData);
+      res.redirect(`${frontendUrl}/login?error=token_failed`);
       return;
     }
 
@@ -434,10 +581,11 @@ router.get("/discord/callback", async (req: Request, res: Response): Promise<voi
       },
     });
 
-    const discordUser = await userResponse.json();
+    const discordUser = await userResponse.json() as DiscordUser;
 
     if (!discordUser.id) {
-      res.redirect(`${process.env.FRONTEND_URL || ''}/login?error=user_failed`);
+      console.error("Discord user error:", discordUser);
+      res.redirect(`${frontendUrl}/login?error=user_failed`);
       return;
     }
 
@@ -460,8 +608,8 @@ router.get("/discord/callback", async (req: Request, res: Response): Promise<voi
       // Check if email exists
       if (discordUser.email) {
         userResult = await pool.query(
-          "SELECT * FROM users WHERE email = $1",
-          [discordUser.email.toLowerCase()]
+          "SELECT * FROM users WHERE LOWER(email) = LOWER($1)",
+          [discordUser.email]
         );
 
         if (userResult.rows.length > 0) {
@@ -478,15 +626,16 @@ router.get("/discord/callback", async (req: Request, res: Response): Promise<voi
         // Create new user with Discord
         const uid = await getNextUID();
         const isAdmin = uid === 1;
-        const username = discordUser.username.toLowerCase().replace(/[^a-z0-9_-]/g, '') || `user${uid}`;
+        // Clean username but allow more characters
+        const cleanUsername = discordUser.username.toLowerCase().replace(/[\s<>]/g, '') || `user${uid}`;
         
         // Make sure username is unique
-        let finalUsername = username;
+        let finalUsername = cleanUsername;
         let counter = 1;
         while (true) {
-          const check = await pool.query("SELECT id FROM users WHERE username = $1", [finalUsername]);
+          const check = await pool.query("SELECT id FROM users WHERE LOWER(username) = LOWER($1)", [finalUsername]);
           if (check.rows.length === 0) break;
-          finalUsername = `${username}${counter}`;
+          finalUsername = `${cleanUsername}${counter}`;
           counter++;
         }
 
@@ -511,10 +660,11 @@ router.get("/discord/callback", async (req: Request, res: Response): Promise<voi
     );
 
     // Redirect to frontend with token
-    res.redirect(`${process.env.FRONTEND_URL || ''}/auth/callback?token=${token}`);
+    res.redirect(`${frontendUrl}/auth/callback?token=${token}`);
   } catch (error) {
     console.error("Discord OAuth error:", error);
-    res.redirect(`${process.env.FRONTEND_URL || ''}/login?error=oauth_failed`);
+    const frontendUrl = process.env.FRONTEND_URL || '';
+    res.redirect(`${frontendUrl}/login?error=oauth_failed`);
   }
 });
 

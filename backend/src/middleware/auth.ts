@@ -6,6 +6,12 @@ export interface AuthRequest extends Request {
   userId?: number;
   username?: string;
   isAdmin?: boolean;
+  user?: {
+    userId: number;
+    username: string;
+    uid: number;
+    isAdmin: boolean;
+  };
 }
 
 export const authenticateToken = async (
@@ -23,25 +29,18 @@ export const authenticateToken = async (
     }
 
     // Verify JWT
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret') as {
       userId: number;
       username: string;
+      uid: number;
+      isAdmin: boolean;
     };
 
-    // Check if session exists and is valid
-    const sessionResult = await pool.query(
-      "SELECT s.*, u.is_admin FROM sessions s JOIN users u ON s.user_id = u.id WHERE s.token = $1 AND s.expires_at > NOW()",
-      [token],
-    );
-
-    if (sessionResult.rows.length === 0) {
-      res.status(401).json({ error: "Invalid or expired session" });
-      return;
-    }
-
+    // Set user info on request
     req.userId = decoded.userId;
     req.username = decoded.username;
-    req.isAdmin = sessionResult.rows[0].is_admin;
+    req.isAdmin = decoded.isAdmin;
+    req.user = decoded;
 
     next();
   } catch (error) {

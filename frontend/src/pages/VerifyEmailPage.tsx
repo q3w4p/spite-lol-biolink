@@ -14,14 +14,13 @@ export default function VerifyEmailPage() {
   const [resendCooldown, setResendCooldown] = useState(0);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  const userId = location.state?.userId;
   const email = location.state?.email;
 
   useEffect(() => {
-    if (!userId) {
+    if (!email) {
       navigate('/register');
     }
-  }, [userId, navigate]);
+  }, [email, navigate]);
 
   useEffect(() => {
     if (resendCooldown > 0) {
@@ -72,9 +71,13 @@ export default function VerifyEmailPage() {
     setError('');
 
     try {
-      await authAPI.verifyEmail({ userId, code: verificationCode });
+      const response = await authAPI.verify({ email, code: verificationCode });
+      // Store the token
+      if (response.data.token) {
+        localStorage.setItem('token', response.data.token);
+      }
       setSuccess(true);
-      setTimeout(() => navigate('/login'), 2000);
+      setTimeout(() => navigate('/dashboard'), 2000);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Verification failed. Please try again.');
       setCode(['', '', '', '', '', '']);
@@ -88,7 +91,7 @@ export default function VerifyEmailPage() {
     if (resendCooldown > 0) return;
 
     try {
-      await authAPI.resendCode({ userId });
+      await authAPI.resendCode({ email });
       setResendCooldown(60);
       setError('');
     } catch (err: any) {
@@ -113,7 +116,7 @@ export default function VerifyEmailPage() {
             <CheckCircle size={48} className="text-[#059669]" />
           </motion.div>
           <h1 className="text-3xl font-bold text-white mb-4">Email Verified!</h1>
-          <p className="text-gray-400 mb-6">Redirecting to login...</p>
+          <p className="text-gray-400 mb-6">Redirecting to dashboard...</p>
         </motion.div>
       </div>
     );
@@ -126,7 +129,7 @@ export default function VerifyEmailPage() {
         <motion.div
           className="absolute w-[600px] h-[600px] rounded-full"
           style={{
-            background: 'radial-gradient(circle, rgba(0, 255, 0, 0.1) 0%, transparent 70%)',
+            background: 'radial-gradient(circle, rgba(5, 150, 105, 0.08) 0%, transparent 70%)',
             top: '-20%',
             right: '-10%',
           }}
