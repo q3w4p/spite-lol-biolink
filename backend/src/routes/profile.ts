@@ -535,3 +535,338 @@ router.post(
 );
 
 export default router;
+
+
+// Get all links (social + custom)
+router.get(
+  "/links",
+  authenticateToken,
+  requireVerified,
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      // Get profile ID
+      const profileResult = await pool.query(
+        "SELECT id FROM profiles WHERE user_id = $1",
+        [req.userId]
+      );
+
+      if (profileResult.rows.length === 0) {
+        res.status(404).json({ error: "Profile not found" });
+        return;
+      }
+
+      const profileId = profileResult.rows[0].id;
+
+      // Get social links
+      const socialResult = await pool.query(
+        "SELECT id, platform, url, icon, color FROM social_links WHERE profile_id = $1 ORDER BY position",
+        [profileId]
+      );
+
+      // Get custom links
+      const customResult = await pool.query(
+        "SELECT id, title, url, icon FROM links WHERE profile_id = $1 ORDER BY position",
+        [profileId]
+      );
+
+      res.json({
+        socialLinks: socialResult.rows,
+        customLinks: customResult.rows
+      });
+    } catch (error) {
+      console.error("Get links error:", error);
+      res.status(500).json({ error: "Failed to get links" });
+    }
+  }
+);
+
+// Add social link
+router.post(
+  "/links/social",
+  authenticateToken,
+  requireVerified,
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const { platform, url, icon, color } = req.body;
+
+      // Get profile ID
+      const profileResult = await pool.query(
+        "SELECT id FROM profiles WHERE user_id = $1",
+        [req.userId]
+      );
+
+      if (profileResult.rows.length === 0) {
+        res.status(404).json({ error: "Profile not found" });
+        return;
+      }
+
+      const profileId = profileResult.rows[0].id;
+
+      // Get max position
+      const maxPosResult = await pool.query(
+        "SELECT COALESCE(MAX(position), -1) as max_pos FROM social_links WHERE profile_id = $1",
+        [profileId]
+      );
+
+      const position = maxPosResult.rows[0].max_pos + 1;
+
+      const result = await pool.query(
+        "INSERT INTO social_links (profile_id, platform, url, icon, color, position) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
+        [profileId, platform, url, icon, color, position]
+      );
+
+      res.status(201).json(result.rows[0]);
+    } catch (error) {
+      console.error("Add social link error:", error);
+      res.status(500).json({ error: "Failed to add social link" });
+    }
+  }
+);
+
+// Add custom link
+router.post(
+  "/links/custom",
+  authenticateToken,
+  requireVerified,
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const { title, url, icon } = req.body;
+
+      // Get profile ID
+      const profileResult = await pool.query(
+        "SELECT id FROM profiles WHERE user_id = $1",
+        [req.userId]
+      );
+
+      if (profileResult.rows.length === 0) {
+        res.status(404).json({ error: "Profile not found" });
+        return;
+      }
+
+      const profileId = profileResult.rows[0].id;
+
+      // Get max position
+      const maxPosResult = await pool.query(
+        "SELECT COALESCE(MAX(position), -1) as max_pos FROM links WHERE profile_id = $1",
+        [profileId]
+      );
+
+      const position = maxPosResult.rows[0].max_pos + 1;
+
+      const result = await pool.query(
+        "INSERT INTO links (profile_id, title, url, icon, position) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+        [profileId, title, url, icon, position]
+      );
+
+      res.status(201).json(result.rows[0]);
+    } catch (error) {
+      console.error("Add custom link error:", error);
+      res.status(500).json({ error: "Failed to add custom link" });
+    }
+  }
+);
+
+// Delete social link
+router.delete(
+  "/links/social/:id",
+  authenticateToken,
+  requireVerified,
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const { id } = req.params;
+
+      // Get profile ID
+      const profileResult = await pool.query(
+        "SELECT id FROM profiles WHERE user_id = $1",
+        [req.userId]
+      );
+
+      if (profileResult.rows.length === 0) {
+        res.status(404).json({ error: "Profile not found" });
+        return;
+      }
+
+      const profileId = profileResult.rows[0].id;
+
+      const result = await pool.query(
+        "DELETE FROM social_links WHERE id = $1 AND profile_id = $2 RETURNING id",
+        [id, profileId]
+      );
+
+      if (result.rows.length === 0) {
+        res.status(404).json({ error: "Link not found" });
+        return;
+      }
+
+      res.json({ message: "Link deleted successfully" });
+    } catch (error) {
+      console.error("Delete social link error:", error);
+      res.status(500).json({ error: "Failed to delete link" });
+    }
+  }
+);
+
+// Delete custom link
+router.delete(
+  "/links/custom/:id",
+  authenticateToken,
+  requireVerified,
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const { id } = req.params;
+
+      // Get profile ID
+      const profileResult = await pool.query(
+        "SELECT id FROM profiles WHERE user_id = $1",
+        [req.userId]
+      );
+
+      if (profileResult.rows.length === 0) {
+        res.status(404).json({ error: "Profile not found" });
+        return;
+      }
+
+      const profileId = profileResult.rows[0].id;
+
+      const result = await pool.query(
+        "DELETE FROM links WHERE id = $1 AND profile_id = $2 RETURNING id",
+        [id, profileId]
+      );
+
+      if (result.rows.length === 0) {
+        res.status(404).json({ error: "Link not found" });
+        return;
+      }
+
+      res.json({ message: "Link deleted successfully" });
+    } catch (error) {
+      console.error("Delete custom link error:", error);
+      res.status(500).json({ error: "Failed to delete link" });
+    }
+  }
+);
+
+// Get user badges
+router.get(
+  "/badges",
+  authenticateToken,
+  requireVerified,
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      // Get all available badges
+      const allBadgesResult = await pool.query(
+        "SELECT * FROM badges ORDER BY type, name"
+      );
+
+      // Get user's badges
+      const userBadgesResult = await pool.query(
+        `SELECT b.*, ub.monochrome, ub.assigned_at 
+         FROM badges b 
+         JOIN user_badges ub ON b.id = ub.badge_id 
+         WHERE ub.user_id = $1`,
+        [req.userId]
+      );
+
+      res.json({
+        allBadges: allBadgesResult.rows,
+        userBadges: userBadgesResult.rows
+      });
+    } catch (error) {
+      console.error("Get badges error:", error);
+      res.status(500).json({ error: "Failed to get badges" });
+    }
+  }
+);
+
+// Update account settings
+router.put(
+  "/account",
+  authenticateToken,
+  requireVerified,
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const { username, displayName, email } = req.body;
+
+      // Check if username is taken
+      if (username) {
+        const existingUser = await pool.query(
+          "SELECT id FROM users WHERE username = $1 AND id != $2",
+          [username.toLowerCase(), req.userId]
+        );
+
+        if (existingUser.rows.length > 0) {
+          res.status(400).json({ error: "Username already taken" });
+          return;
+        }
+      }
+
+      // Update user
+      const userResult = await pool.query(
+        `UPDATE users 
+         SET username = COALESCE($1, username),
+             email = COALESCE($2, email)
+         WHERE id = $3
+         RETURNING id, username, email, uid, role, is_verified as "isVerified", is_admin as "isAdmin"`,
+        [username?.toLowerCase(), email, req.userId]
+      );
+
+      // Update profile display name
+      if (displayName) {
+        await pool.query(
+          "UPDATE profiles SET display_name = $1 WHERE user_id = $2",
+          [displayName, req.userId]
+        );
+      }
+
+      res.json(userResult.rows[0]);
+    } catch (error) {
+      console.error("Update account error:", error);
+      res.status(500).json({ error: "Failed to update account" });
+    }
+  }
+);
+
+// Change password
+router.put(
+  "/password",
+  authenticateToken,
+  requireVerified,
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const { currentPassword, newPassword } = req.body;
+      const bcrypt = require("bcryptjs");
+
+      // Get current password hash
+      const userResult = await pool.query(
+        "SELECT password_hash FROM users WHERE id = $1",
+        [req.userId]
+      );
+
+      if (userResult.rows.length === 0) {
+        res.status(404).json({ error: "User not found" });
+        return;
+      }
+
+      // Verify current password
+      const isValid = await bcrypt.compare(currentPassword, userResult.rows[0].password_hash);
+      if (!isValid) {
+        res.status(400).json({ error: "Current password is incorrect" });
+        return;
+      }
+
+      // Hash new password
+      const newHash = await bcrypt.hash(newPassword, 12);
+
+      // Update password
+      await pool.query(
+        "UPDATE users SET password_hash = $1 WHERE id = $2",
+        [newHash, req.userId]
+      );
+
+      res.json({ message: "Password changed successfully" });
+    } catch (error) {
+      console.error("Change password error:", error);
+      res.status(500).json({ error: "Failed to change password" });
+    }
+  }
+);

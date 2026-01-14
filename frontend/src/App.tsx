@@ -8,6 +8,11 @@ import DashboardPage from "./pages/DashboardPage";
 import ProfilePage from "./pages/ProfilePage";
 import AdminPage from "./pages/AdminPage";
 import OwnerPanelPage from "./pages/OwnerPanelPage";
+import BadgesPage from "./pages/BadgesPage";
+import SettingsPage from "./pages/SettingsPage";
+import CustomizePage from "./pages/CustomizePage";
+import LinksPage from "./pages/LinksPage";
+import TemplatesPage from "./pages/TemplatesPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import { authAPI } from "./utils/api";
 import NewHomePage from "./pages/NewHomePage";
@@ -16,10 +21,14 @@ export interface User {
   id: number;
   username: string;
   email: string;
-  uid: string;
+  uid: number;
   role: string;
   isVerified: boolean;
   isAdmin: boolean;
+  isOwner: boolean;
+  displayName?: string;
+  avatar?: string;
+  bio?: string;
 }
 
 function App() {
@@ -54,7 +63,12 @@ function App() {
         <Route path="/login" element={<LoginPage setUser={setUser} />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
-        <Route path="/dashboard" element={<DashboardPage user={user} />} />
+        <Route path="/dashboard" element={<DashboardPage user={user} setUser={setUser} />} />
+        <Route path="/dashboard/badges" element={<BadgesPage user={user} />} />
+        <Route path="/dashboard/settings" element={<SettingsPage user={user} setUser={setUser} />} />
+        <Route path="/dashboard/customize" element={<CustomizePage user={user} />} />
+        <Route path="/dashboard/links" element={<LinksPage />} />
+        <Route path="/dashboard/templates" element={<TemplatesPage />} />
         <Route path="/admin" element={<AdminPage user={user} />} />
         <Route path="/owner" element={<OwnerPanelPage user={user} />} />
         <Route path="/:username" element={<ProfilePage />} />

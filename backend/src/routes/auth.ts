@@ -16,14 +16,10 @@ const generateVerificationCode = (): string => {
   return Math.floor(100000 + Math.random() * 900000).toString();
 };
 
-// Generate 8-character alphanumeric UID
-const generateUID = (): string => {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let result = '';
-  for (let i = 0; i < 8; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
+// Get next sequential UID
+const getNextUID = async (): Promise<number> => {
+  const result = await pool.query("SELECT NEXTVAL('user_uid_seq') as uid");
+  return parseInt(result.rows[0].uid);
 };
 
 // Register new user
@@ -72,25 +68,25 @@ router.post("/register", async (req: Request, res: Response): Promise<void> => {
     // Hash password
     const passwordHash = await bcrypt.hash(password, 12);
 
-    // Generate unique UID
-    let uid = generateUID();
-    let uidExists = true;
-    while (uidExists) {
-      const uidCheck = await pool.query("SELECT id FROM users WHERE uid = $1", [uid]);
-      if (uidCheck.rows.length === 0) {
-        uidExists = false;
-      } else {
-        uid = generateUID();
-      }
-    }
+    // Get next sequential UID (1, 2, 3, etc.)
+    const uid = await getNextUID();
+    
+    // UID 1 is automatically the owner/admin
+    const isAdmin = uid === 1;
 
-    // Create user with UID
+    // Create user with sequential UID
     const userResult = await pool.query(
-      "INSERT INTO users (username, email, password_hash, uid) VALUES ($1, $2, $3, $4) RETURNING id, username, email, uid",
-      [username.toLowerCase(), email.toLowerCase(), passwordHash, uid],
+      "INSERT INTO users (username, email, password_hash, uid, is_admin, role) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, username, email, uid, is_admin",
+      [username.toLowerCase(), email.toLowerCase(), passwordHash, uid, isAdmin, isAdmin ? 'owner' : 'user'],
     );
 
     const user = userResult.rows[0];
+
+    // Create default profile for user
+    await pool.query(
+      "INSERT INTO profiles (user_id) VALUES ($1)",
+      [user.id]
+    );
 
     // Generate verification code
     const verificationCode = generateVerificationCode();
@@ -101,16 +97,18 @@ router.post("/register", async (req: Request, res: Response): Promise<void> => {
       [user.id, verificationCode, expiresAt],
     );
 
-    // Send verification email via SpaceMail
+    // Send verification email
     await sendVerificationEmail(email, verificationCode, username);
 
     res.status(201).json({
-      message:
-        "Registration successful! Check your email for verification code.",
-      userId: user.id,
-      username: user.username,
-      email: user.email,
-      uid: user.uid,
+      message: "Registration successful. Please check your email for verification code.",
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        uid: user.uid,
+        isAdmin: user.is_admin
+      },
     });
   } catch (error) {
     console.error("Registration error:", error);
@@ -119,123 +117,119 @@ router.post("/register", async (req: Request, res: Response): Promise<void> => {
 });
 
 // Verify email with code
-router.post(
-  "/verify-email",
-  async (req: Request, res: Response): Promise<void> => {
-    try {
-      const { userId, code } = req.body;
+router.post("/verify", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email, code } = req.body;
 
-      if (!userId || !code) {
-        res.status(400).json({ error: "User ID and code are required" });
-        return;
-      }
-
-      // Find valid verification code
-      const result = await pool.query(
-        "SELECT * FROM verification_codes WHERE user_id = $1 AND code = $2 AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1",
-        [userId, code],
-      );
-
-      if (result.rows.length === 0) {
-        res.status(400).json({ error: "Invalid or expired verification code" });
-        return;
-      }
-
-      // Update user as verified
-      await pool.query("UPDATE users SET is_verified = TRUE WHERE id = $1", [
-        userId,
-      ]);
-
-      // Create default profile with settings
-      await pool.query(
-        "INSERT INTO profiles (user_id, settings) VALUES ($1, $2)",
-        [userId, JSON.stringify({
-          monochromeIcons: false,
-          iconPreset: 'minimalist',
-          typewriterEffect: false,
-          typewriterSpeed: 50,
-          cursorEffect: 'none',
-          cursorColor: '#00FF00',
-          cursorDensity: 50
-        })]
-      );
-
-      // Delete used verification codes
-      await pool.query("DELETE FROM verification_codes WHERE user_id = $1", [
-        userId,
-      ]);
-
-      // Get user info for welcome email
-      const userResult = await pool.query(
-        "SELECT username, email, uid FROM users WHERE id = $1",
-        [userId],
-      );
-
-      const user = userResult.rows[0];
-      await sendWelcomeEmail(user.email, user.username, user.uid);
-
-      res.json({ message: "Email verified successfully!", uid: user.uid });
-    } catch (error) {
-      console.error("Verification error:", error);
-      res.status(500).json({ error: "Verification failed" });
+    if (!email || !code) {
+      res.status(400).json({ error: "Email and verification code are required" });
+      return;
     }
-  },
-);
+
+    // Find user by email
+    const userResult = await pool.query(
+      "SELECT id, username, email, uid, is_admin FROM users WHERE email = $1",
+      [email.toLowerCase()]
+    );
+
+    if (userResult.rows.length === 0) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+
+    const user = userResult.rows[0];
+
+    // Check verification code
+    const codeResult = await pool.query(
+      "SELECT * FROM verification_codes WHERE user_id = $1 AND code = $2 AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1",
+      [user.id, code]
+    );
+
+    if (codeResult.rows.length === 0) {
+      res.status(400).json({ error: "Invalid or expired verification code" });
+      return;
+    }
+
+    // Mark user as verified
+    await pool.query("UPDATE users SET is_verified = true WHERE id = $1", [user.id]);
+
+    // Delete used verification codes
+    await pool.query("DELETE FROM verification_codes WHERE user_id = $1", [user.id]);
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { userId: user.id, username: user.username, uid: user.uid, isAdmin: user.is_admin },
+      process.env.JWT_SECRET || "secret",
+      { expiresIn: "7d" }
+    );
+
+    // Send welcome email
+    await sendWelcomeEmail(user.email, user.username, user.uid.toString());
+
+    res.json({
+      message: "Email verified successfully",
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        uid: user.uid,
+        isAdmin: user.is_admin
+      }
+    });
+  } catch (error) {
+    console.error("Verification error:", error);
+    res.status(500).json({ error: "Verification failed" });
+  }
+});
 
 // Resend verification code
-router.post(
-  "/resend-code",
-  async (req: Request, res: Response): Promise<void> => {
-    try {
-      const { userId } = req.body;
+router.post("/resend-code", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email } = req.body;
 
-      if (!userId) {
-        res.status(400).json({ error: "User ID is required" });
-        return;
-      }
-
-      // Get user info
-      const userResult = await pool.query(
-        "SELECT username, email, is_verified FROM users WHERE id = $1",
-        [userId],
-      );
-
-      if (userResult.rows.length === 0) {
-        res.status(404).json({ error: "User not found" });
-        return;
-      }
-
-      const user = userResult.rows[0];
-
-      if (user.is_verified) {
-        res.status(400).json({ error: "Email already verified" });
-        return;
-      }
-
-      // Delete old codes
-      await pool.query("DELETE FROM verification_codes WHERE user_id = $1", [
-        userId,
-      ]);
-
-      // Generate new code with 5-minute expiry
-      const verificationCode = generateVerificationCode();
-      const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
-
-      await pool.query(
-        "INSERT INTO verification_codes (user_id, code, expires_at) VALUES ($1, $2, $3)",
-        [userId, verificationCode, expiresAt],
-      );
-
-      // Send email via SpaceMail
-      await sendVerificationEmail(user.email, verificationCode, user.username);
-
-      res.json({ message: "Verification code sent!" });
-    } catch (error) {
-      console.error("Resend code error:", error);
-      res.status(500).json({ error: "Failed to resend code" });
+    if (!email) {
+      res.status(400).json({ error: "Email is required" });
+      return;
     }
-  },
-);
+
+    const userResult = await pool.query(
+      "SELECT id, username, is_verified FROM users WHERE email = $1",
+      [email.toLowerCase()]
+    );
+
+    if (userResult.rows.length === 0) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+
+    const user = userResult.rows[0];
+
+    if (user.is_verified) {
+      res.status(400).json({ error: "Email is already verified" });
+      return;
+    }
+
+    // Delete old codes
+    await pool.query("DELETE FROM verification_codes WHERE user_id = $1", [user.id]);
+
+    // Generate new code
+    const verificationCode = generateVerificationCode();
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+    await pool.query(
+      "INSERT INTO verification_codes (user_id, code, expires_at) VALUES ($1, $2, $3)",
+      [user.id, verificationCode, expiresAt]
+    );
+
+    await sendVerificationEmail(email, verificationCode, user.username);
+
+    res.json({ message: "Verification code sent" });
+  } catch (error) {
+    console.error("Resend code error:", error);
+    res.status(500).json({ error: "Failed to resend code" });
+  }
+});
 
 // Login
 router.post("/login", async (req: Request, res: Response): Promise<void> => {
@@ -247,10 +241,10 @@ router.post("/login", async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Find user (can login with username, email, or UID)
+    // Find user by username or email
     const userResult = await pool.query(
-      "SELECT id, username, email, password_hash, is_verified, is_admin, uid, role FROM users WHERE username = $1 OR email = $1 OR uid = $1",
-      [username.toLowerCase()],
+      "SELECT * FROM users WHERE username = $1 OR email = $1",
+      [username.toLowerCase()]
     );
 
     if (userResult.rows.length === 0) {
@@ -260,14 +254,9 @@ router.post("/login", async (req: Request, res: Response): Promise<void> => {
 
     const user = userResult.rows[0];
 
-    // Check if user is banned
-    const banCheck = await pool.query(
-      "SELECT reason FROM banned_users WHERE user_id = $1",
-      [user.id]
-    );
-
-    if (banCheck.rows.length > 0) {
-      res.status(403).json({ error: "Account suspended", reason: banCheck.rows[0].reason });
+    // Check if banned
+    if (user.is_banned) {
+      res.status(403).json({ error: "Account is banned", reason: user.ban_reason });
       return;
     }
 
@@ -278,31 +267,37 @@ router.post("/login", async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Generate JWT
-    const token = jwt.sign(
-      { userId: user.id, username: user.username, uid: user.uid },
-      process.env.JWT_SECRET!,
-      { expiresIn: "30d" },
-    );
+    // Check if verified
+    if (!user.is_verified) {
+      res.status(403).json({ 
+        error: "Email not verified", 
+        needsVerification: true,
+        email: user.email 
+      });
+      return;
+    }
 
-    // Create session
-    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
-    await pool.query(
-      "INSERT INTO sessions (user_id, token, expires_at) VALUES ($1, $2, $3)",
-      [user.id, token, expiresAt],
+    // Generate JWT token
+    const token = jwt.sign(
+      { userId: user.id, username: user.username, uid: user.uid, isAdmin: user.is_admin },
+      process.env.JWT_SECRET || "secret",
+      { expiresIn: "7d" }
     );
 
     res.json({
+      message: "Login successful",
       token,
       user: {
         id: user.id,
         username: user.username,
         email: user.email,
         uid: user.uid,
-        isVerified: user.is_verified,
+        displayName: user.display_name,
+        avatar: user.avatar,
         isAdmin: user.is_admin,
-        role: user.role || 'user',
-      },
+        isVerified: user.is_verified,
+        role: user.role
+      }
     });
   } catch (error) {
     console.error("Login error:", error);
@@ -310,86 +305,107 @@ router.post("/login", async (req: Request, res: Response): Promise<void> => {
   }
 });
 
-// Logout
-router.post(
-  "/logout",
-  authenticateToken,
-  async (req: AuthRequest, res: Response): Promise<void> => {
-    try {
-      const token = req.headers["authorization"]?.split(" ")[1];
-
-      await pool.query("DELETE FROM sessions WHERE token = $1", [token]);
-
-      res.json({ message: "Logged out successfully" });
-    } catch (error) {
-      console.error("Logout error:", error);
-      res.status(500).json({ error: "Logout failed" });
-    }
-  },
-);
-
 // Get current user
-router.get(
-  "/me",
-  authenticateToken,
-  async (req: AuthRequest, res: Response): Promise<void> => {
-    try {
-      const userResult = await pool.query(
-        "SELECT id, username, email, is_verified, is_admin, uid, role, created_at FROM users WHERE id = $1",
-        [req.userId],
-      );
+router.get("/me", authenticateToken, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userResult = await pool.query(
+      `SELECT u.*, p.* FROM users u 
+       LEFT JOIN profiles p ON u.id = p.user_id 
+       WHERE u.id = $1`,
+      [req.user?.userId]
+    );
 
-      if (userResult.rows.length === 0) {
-        res.status(404).json({ error: "User not found" });
-        return;
-      }
-
-      const user = userResult.rows[0];
-
-      // Get user badges
-      const badgesResult = await pool.query(
-        `SELECT b.id, b.name, b.type, b.icon, b.color, ub.monochrome 
-         FROM badges b 
-         JOIN user_badges ub ON b.id = ub.badge_id 
-         WHERE ub.user_id = $1`,
-        [req.userId]
-      );
-
-      res.json({
-        ...user,
-        badges: badgesResult.rows
-      });
-    } catch (error) {
-      console.error("Get user error:", error);
-      res.status(500).json({ error: "Failed to get user" });
+    if (userResult.rows.length === 0) {
+      res.status(404).json({ error: "User not found" });
+      return;
     }
-  },
-);
 
-// Discord OAuth - Initiate
-router.get('/discord', (req: Request, res: Response) => {
+    const user = userResult.rows[0];
+    
+    // UID 1 always has owner access
+    const isOwner = user.uid === 1;
+
+    res.json({
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        uid: user.uid,
+        displayName: user.display_name,
+        bio: user.bio,
+        avatar: user.avatar,
+        discordId: user.discord_id,
+        discordAvatar: user.discord_avatar,
+        discordUsername: user.discord_username,
+        useDiscordAvatar: user.use_discord_avatar,
+        isVerified: user.is_verified,
+        isAdmin: user.is_admin,
+        isOwner: isOwner,
+        role: user.role,
+        createdAt: user.created_at,
+        profile: {
+          bio: user.bio,
+          location: user.location,
+          backgroundImage: user.background_image,
+          backgroundVideo: user.background_video,
+          backgroundAudio: user.background_audio,
+          customPfp: user.custom_pfp,
+          customCursor: user.custom_cursor,
+          useDiscordPfp: user.use_discord_pfp,
+          useDiscordDecoration: user.use_discord_decoration,
+          accentColor: user.accent_color,
+          textColor: user.text_color,
+          backgroundColor: user.background_color,
+          iconColor: user.icon_color,
+          backgroundEffect: user.background_effect,
+          usernameEffect: user.username_effect,
+          profileOpacity: user.profile_opacity,
+          profileBlur: user.profile_blur,
+          monochromeIcons: user.monochrome_icons,
+          animatedTitle: user.animated_title,
+          swapBoxColors: user.swap_box_colors,
+          volumeControl: user.volume_control,
+          typewriterEffect: user.typewriter_effect,
+          typewriterSpeed: user.typewriter_speed,
+          enableGradient: user.enable_gradient,
+          gradientStart: user.gradient_start,
+          gradientEnd: user.gradient_end,
+          glowUsername: user.glow_username,
+          glowSocials: user.glow_socials,
+          glowBadges: user.glow_badges,
+          discordPresence: user.discord_presence,
+          viewCount: user.view_count
+        }
+      }
+    });
+  } catch (error) {
+    console.error("Get user error:", error);
+    res.status(500).json({ error: "Failed to get user" });
+  }
+});
+
+// Discord OAuth - Start
+router.get("/discord", (req: Request, res: Response) => {
   const clientId = process.env.DISCORD_CLIENT_ID;
-  // Use the backend URL for callback, not frontend
-  const baseUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
-  const redirectUri = encodeURIComponent(`${baseUrl}/api/auth/discord/callback`);
+  const redirectUri = encodeURIComponent(process.env.DISCORD_REDIRECT_URI || '');
   const scope = encodeURIComponent('identify email');
   
-  const discordAuthUrl = `https://discord.com/oauth2/authorize?client_id=${clientId}&response_type=code&redirect_uri=${redirectUri}&scope=${scope}`;
+  const discordAuthUrl = `https://discord.com/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${scope}`;
   
   res.redirect(discordAuthUrl);
 });
 
 // Discord OAuth - Callback
-router.get('/discord/callback', async (req: Request, res: Response): Promise<void> => {
+router.get("/discord/callback", async (req: Request, res: Response): Promise<void> => {
   try {
     const { code } = req.query;
-
+    
     if (!code) {
-      res.redirect('/login?error=discord_auth_failed');
+      res.redirect(`${process.env.FRONTEND_URL || ''}/login?error=no_code`);
       return;
     }
 
-    // Exchange code for access token
+    // Exchange code for token
     const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
       method: 'POST',
       headers: {
@@ -400,14 +416,14 @@ router.get('/discord/callback', async (req: Request, res: Response): Promise<voi
         client_secret: process.env.DISCORD_CLIENT_SECRET || '',
         grant_type: 'authorization_code',
         code: code as string,
-        redirect_uri: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/api/auth/discord/callback`,
+        redirect_uri: process.env.DISCORD_REDIRECT_URI || '',
       }),
     });
 
     const tokenData = await tokenResponse.json();
 
     if (!tokenData.access_token) {
-      res.redirect('/login?error=discord_token_failed');
+      res.redirect(`${process.env.FRONTEND_URL || ''}/login?error=token_failed`);
       return;
     }
 
@@ -421,114 +437,117 @@ router.get('/discord/callback', async (req: Request, res: Response): Promise<voi
     const discordUser = await userResponse.json();
 
     if (!discordUser.id) {
-      res.redirect('/login?error=discord_user_failed');
+      res.redirect(`${process.env.FRONTEND_URL || ''}/login?error=user_failed`);
       return;
     }
 
     // Check if user exists with this Discord ID
-    let result = await pool.query(
-      'SELECT * FROM users WHERE discord_id = $1',
+    let userResult = await pool.query(
+      "SELECT * FROM users WHERE discord_id = $1",
       [discordUser.id]
     );
 
     let user;
 
-    if (result.rows.length === 0) {
-      // Check if email already exists
+    if (userResult.rows.length > 0) {
+      // User exists, update Discord info
+      user = userResult.rows[0];
+      await pool.query(
+        "UPDATE users SET discord_avatar = $1, discord_username = $2 WHERE id = $3",
+        [discordUser.avatar, discordUser.username, user.id]
+      );
+    } else {
+      // Check if email exists
       if (discordUser.email) {
-        const emailCheck = await pool.query(
-          'SELECT * FROM users WHERE LOWER(email) = LOWER($1)',
-          [discordUser.email]
+        userResult = await pool.query(
+          "SELECT * FROM users WHERE email = $1",
+          [discordUser.email.toLowerCase()]
         );
 
-        if (emailCheck.rows.length > 0) {
+        if (userResult.rows.length > 0) {
           // Link Discord to existing account
+          user = userResult.rows[0];
           await pool.query(
-            'UPDATE users SET discord_id = $1, discord_avatar = $2 WHERE id = $3',
-            [discordUser.id, discordUser.avatar, emailCheck.rows[0].id]
+            "UPDATE users SET discord_id = $1, discord_avatar = $2, discord_username = $3 WHERE id = $4",
+            [discordUser.id, discordUser.avatar, discordUser.username, user.id]
           );
-          user = emailCheck.rows[0];
         }
       }
 
       if (!user) {
-        // Create new user
-        let uid = generateUID();
-        let uidExists = true;
-        while (uidExists) {
-          const uidCheck = await pool.query('SELECT id FROM users WHERE uid = $1', [uid]);
-          if (uidCheck.rows.length === 0) {
-            uidExists = false;
-          } else {
-            uid = generateUID();
-          }
-        }
-
-        // Generate username from Discord username
-        let username = discordUser.username.toLowerCase().replace(/[^a-z0-9_-]/g, '');
-        if (username.length < 3) username = `user${uid.slice(0, 4).toLowerCase()}`;
+        // Create new user with Discord
+        const uid = await getNextUID();
+        const isAdmin = uid === 1;
+        const username = discordUser.username.toLowerCase().replace(/[^a-z0-9_-]/g, '') || `user${uid}`;
         
-        // Check if username exists
-        const usernameCheck = await pool.query(
-          'SELECT id FROM users WHERE LOWER(username) = LOWER($1)',
-          [username]
-        );
-        if (usernameCheck.rows.length > 0) {
-          username = `${username}${uid.slice(0, 4).toLowerCase()}`;
+        // Make sure username is unique
+        let finalUsername = username;
+        let counter = 1;
+        while (true) {
+          const check = await pool.query("SELECT id FROM users WHERE username = $1", [finalUsername]);
+          if (check.rows.length === 0) break;
+          finalUsername = `${username}${counter}`;
+          counter++;
         }
 
-        const insertResult = await pool.query(
-          `INSERT INTO users (username, email, uid, discord_id, discord_avatar, is_verified)
-           VALUES ($1, $2, $3, $4, $5, true)
+        userResult = await pool.query(
+          `INSERT INTO users (username, email, uid, discord_id, discord_avatar, discord_username, is_verified, is_admin, role) 
+           VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8) 
            RETURNING *`,
-          [username, discordUser.email, uid, discordUser.id, discordUser.avatar]
+          [finalUsername, discordUser.email?.toLowerCase() || `${discordUser.id}@discord.user`, uid, discordUser.id, discordUser.avatar, discordUser.username, isAdmin, isAdmin ? 'owner' : 'user']
         );
-
-        user = insertResult.rows[0];
+        user = userResult.rows[0];
 
         // Create default profile
-        await pool.query(
-          "INSERT INTO profiles (user_id, settings) VALUES ($1, $2)",
-          [user.id, JSON.stringify({
-            monochromeIcons: false,
-            iconPreset: 'minimalist',
-            typewriterEffect: false,
-            typewriterSpeed: 50,
-            cursorEffect: 'none',
-            cursorColor: '#10B981',
-            cursorDensity: 50
-          })]
-        );
+        await pool.query("INSERT INTO profiles (user_id) VALUES ($1)", [user.id]);
       }
-    } else {
-      user = result.rows[0];
-      // Update Discord avatar
-      await pool.query(
-        'UPDATE users SET discord_avatar = $1 WHERE id = $2',
-        [discordUser.avatar, user.id]
-      );
     }
 
-    // Generate JWT token
+    // Generate JWT
     const token = jwt.sign(
-      { userId: user.id, username: user.username, uid: user.uid },
-      process.env.JWT_SECRET!,
-      { expiresIn: '30d' }
-    );
-
-    // Create session
-    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-    await pool.query(
-      'INSERT INTO sessions (user_id, token, expires_at) VALUES ($1, $2, $3)',
-      [user.id, token, expiresAt]
+      { userId: user.id, username: user.username, uid: user.uid, isAdmin: user.is_admin },
+      process.env.JWT_SECRET || "secret",
+      { expiresIn: "7d" }
     );
 
     // Redirect to frontend with token
-    const frontendUrl = process.env.FRONTEND_URL || '';
-    res.redirect(`${frontendUrl}/dashboard?token=${token}`);
+    res.redirect(`${process.env.FRONTEND_URL || ''}/auth/callback?token=${token}`);
   } catch (error) {
-    console.error('Discord OAuth error:', error);
-    res.redirect('/login?error=discord_auth_failed');
+    console.error("Discord OAuth error:", error);
+    res.redirect(`${process.env.FRONTEND_URL || ''}/login?error=oauth_failed`);
+  }
+});
+
+// Logout
+router.post("/logout", authenticateToken, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    // Delete user sessions
+    await pool.query("DELETE FROM sessions WHERE user_id = $1", [req.user?.userId]);
+    res.json({ message: "Logged out successfully" });
+  } catch (error) {
+    console.error("Logout error:", error);
+    res.status(500).json({ error: "Logout failed" });
+  }
+});
+
+// Check if user is owner (UID 1)
+router.get("/check-owner", authenticateToken, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userResult = await pool.query(
+      "SELECT uid FROM users WHERE id = $1",
+      [req.user?.userId]
+    );
+
+    if (userResult.rows.length === 0) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+
+    const isOwner = userResult.rows[0].uid === 1;
+    res.json({ isOwner });
+  } catch (error) {
+    console.error("Check owner error:", error);
+    res.status(500).json({ error: "Failed to check owner status" });
   }
 });
 
